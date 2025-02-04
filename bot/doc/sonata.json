@@ -1,0 +1,10 @@
+{
+    "name": "현대 소나타",
+    "manufacturer": "현대자동차",
+    "year": 2023,
+    "engine": "2.5L 가솔린",
+    "horsepower": 191,
+    "fuel_efficiency": "12.1 km/L",
+    "description": "현대 소나타는 중형 세단으로, 뛰어난 연비와 편안한 승차감을 제공합니다.",
+    "image": "img/sonata.jpg"
+}
