@@ -3,6 +3,7 @@ from transformers import BertTokenizer, BertForSequenceClassification, Trainer, 
 from torch.utils.data import Dataset
 import pandas as pd
 
+
 class ChatDataset(Dataset):
     def __init__(self, filename):
         data = pd.read_csv(filename)
@@ -10,18 +11,27 @@ class ChatDataset(Dataset):
         self.labels = data['label'].tolist()
         self.tokenizer = BertTokenizer.from_pretrained('klue/bert-base')
 
+        # 문자열 라벨을 숫자로 변환
+        self.label_mapping = {'support': 0, 'encouragement': 1}
+        self.labels = [self.label_mapping[label] for label in self.labels]
+
     def __len__(self):
         return len(self.texts)
 
     def __getitem__(self, idx):
-        tokenized_input = self.tokenizer(self.texts[idx], return_tensors='pt', padding=True, truncation=True, max_length=512)
+        tokenized_input = self.tokenizer(self.texts[idx], return_tensors='pt', padding='max_length', truncation=True,
+                                         max_length=512)
         input_ids = tokenized_input['input_ids'].squeeze()
-        label = torch.tensor(self.labels[idx])
-        return input_ids, label
+        attention_mask = tokenized_input['attention_mask'].squeeze()
+
+        # 정수형 라벨 변환
+        label = torch.tensor(self.labels[idx], dtype=torch.long)
+        return {'input_ids': input_ids, 'attention_mask': attention_mask, 'labels': label}
+
 
 # 토크나이저와 모델 로드
 tokenizer = BertTokenizer.from_pretrained('klue/bert-base')
-model = BertForSequenceClassification.from_pretrained('klue/bert-base', num_labels=2)  # num_labels는 레이블 수에 맞게 조정
+model = BertForSequenceClassification.from_pretrained('klue/bert-base', num_labels=2)  # support와 encouragement 두 개의 클래스
 
 # 데이터셋 생성
 train_dataset = ChatDataset('data.csv')
@@ -29,7 +39,7 @@ train_dataset = ChatDataset('data.csv')
 # 트레이닝 아규먼트 설정
 training_args = TrainingArguments(
     output_dir='./results',
-    num_train_epochs=3,
+    num_train_epochs=100,
     per_device_train_batch_size=4,
     warmup_steps=500,
     weight_decay=0.01,
