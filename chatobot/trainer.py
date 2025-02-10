@@ -1,61 +1,61 @@
+import os
 import torch
-from transformers import BertTokenizer, BertForSequenceClassification, Trainer, TrainingArguments
-from torch.utils.data import Dataset
-import pandas as pd
+from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 
+# ✅ 1. 훈련된 KoGPT2 모델 로드
+model_path = os.path.abspath("./trained_kogpt2")  # 절대 경로 설정
+tokenizer = GPT2TokenizerFast.from_pretrained(model_path)
+model = GPT2LMHeadModel.from_pretrained(model_path)
 
-class ChatDataset(Dataset):
-    def __init__(self, filename):
-        data = pd.read_csv(filename)
-        self.texts = data['text'].tolist()
-        self.labels = data['label'].tolist()
-        self.tokenizer = BertTokenizer.from_pretrained('klue/bert-base')
+# ✅ 2. 모델을 평가 모드로 변경
+model.eval()
 
-        # 문자열 라벨을 숫자로 변환
-        self.label_mapping = {'support': 0, 'encouragement': 1}
-        self.labels = [self.label_mapping[label] for label in self.labels]
+# ✅ 3. 뉴스, 연설문 등의 불필요한 단어 차단
+bad_words = ["대통령", "기상청", "연설", "공식", "기자", "기념식", "보도", "중국", "일본", "스승의 날"]
+bad_words_ids = [tokenizer.encode(word, add_special_tokens=False) for word in bad_words]
 
-    def __len__(self):
-        return len(self.texts)
+# ✅ 4. 질문을 입력하면 챗봇이 대답하도록 설정
+def chat_with_bot():
+    print("\n🔹 KoGPT2 챗봇 테스트 시작! (종료하려면 'exit' 입력)\n")
 
-    def __getitem__(self, idx):
-        tokenized_input = self.tokenizer(self.texts[idx], return_tensors='pt', padding='max_length', truncation=True,
-                                         max_length=512)
-        input_ids = tokenized_input['input_ids'].squeeze()
-        attention_mask = tokenized_input['attention_mask'].squeeze()
+    while True:
+        user_input = input("😃 당신: ").strip()
+        if user_input.lower() in ["exit", "종료", "quit"]:
+            print("💬 챗봇: 대화를 종료합니다. 좋은 하루 되세요!")
+            break
 
-        # 정수형 라벨 변환
-        label = torch.tensor(self.labels[idx], dtype=torch.long)
-        return {'input_ids': input_ids, 'attention_mask': attention_mask, 'labels': label}
+        # ✅ 5. 질문 입력을 KoGPT2가 이해할 수 있도록 변환
+        input_text = f"질문: {user_input}\n대답:"
+        input_ids = tokenizer.encode(input_text, return_tensors="pt")
 
+        # ✅ 6. attention_mask 추가하여 `generate()` 문제 해결
+        attention_mask = input_ids.ne(tokenizer.pad_token_id).long()  # pad_token_id가 아닌 부분만 1로 설정
 
-# 토크나이저와 모델 로드
-tokenizer = BertTokenizer.from_pretrained('klue/bert-base')
-model = BertForSequenceClassification.from_pretrained('klue/bert-base', num_labels=2)  # support와 encouragement 두 개의 클래스
+        # ✅ 7. KoGPT2가 답변 생성
+        with torch.no_grad():
+            output = model.generate(
+                input_ids,
+                attention_mask=attention_mask,  # 🔹 attention_mask 추가
+                max_length=50,  # 🔹 너무 짧게 잘리는 문제 해결 (기존 30 → 50)
+                num_return_sequences=1,  # 생성할 응답 개수
+                top_p=0.85,  # 🔹 nucleus sampling 범위 조정 (기존 0.8 → 0.85)
+                temperature=0.7,  # 🔹 조금 더 자연스러운 문장 생성 (기존 0.6 → 0.7)
+                repetition_penalty=1.8,  # 🔹 반복되는 문장 억제 (기존 1.7 → 1.8)
+                no_repeat_ngram_size=2,  # 🔹 2개 단어 이상의 n-그램 반복 방지
+                do_sample=True,  # 샘플링 적용
+                bad_words_ids=bad_words_ids,  # 🔹 불필요한 단어 차단
+                eos_token_id=tokenizer.eos_token_id  # 🔹 문장 완성을 유도
+            )
 
-# 데이터셋 생성
-train_dataset = ChatDataset('data.csv')
+        # ✅ 8. KoGPT2의 대답을 디코딩하여 출력
+        response = tokenizer.decode(output[0], skip_special_tokens=True)
+        response = response.replace(input_text, "").strip()  # 입력 질문 제거
 
-# 트레이닝 아규먼트 설정
-training_args = TrainingArguments(
-    output_dir='./results',
-    num_train_epochs=100,
-    per_device_train_batch_size=4,
-    warmup_steps=500,
-    weight_decay=0.01,
-    logging_dir='./logs',
-    save_strategy="epoch"
-)
+        # ✅ 9. 특수 문자 필터링 및 응답 정제
+        response = response.split("대답:")[0].strip()  # 불필요한 반복 제거
+        response = response.replace("하지만 하지만", "하지만")  # 반복된 연결어 제거
 
-# 트레이너 생성
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_dataset
-)
+        print(f"💬 챗봇: {response}\n")
 
-# 트레이닝 시작
-trainer.train()
-
-# 모델 저장
-model.save_pretrained('./trained_model')
+# ✅ 실행
+chat_with_bot()
