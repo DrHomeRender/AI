@@ -1,28 +1,32 @@
 import torch
 import torch.nn as nn
-import math
 
 class PositionalEncoding(nn.Module):
-    """Transformer를 위한 포지셔널 인코딩"""
-    def __init__(self, hidden_dim, max_len=5000):
+    def __init__(self, d_model, max_len=512):
         super(PositionalEncoding, self).__init__()
-        pe = torch.zeros(max_len, hidden_dim)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, hidden_dim, 2).float() * (-math.log(10000.0) / hidden_dim))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        self.pe = pe.unsqueeze(0)  # (1, max_len, hidden_dim)
+        self.d_model = d_model
+        self.max_len = max_len
+        self.pe = None  # Positional Encoding을 미리 생성하지 않고, 필요할 때 생성
 
     def forward(self, x):
-        return x + self.pe[:, :x.size(1), :].to(x.device)
+        seq_len = x.size(1)
 
+        # 새로운 Sequence Length에 맞춰 Positional Encoding 생성
+        if self.pe is None or self.pe.shape[1] < seq_len:
+            pe = torch.zeros(1, seq_len, self.d_model)
+            position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+            div_term = torch.exp(torch.arange(0, self.d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / self.d_model))
+            pe[0, :, 0::2] = torch.sin(position * div_term)
+            pe[0, :, 1::2] = torch.cos(position * div_term)
+            self.pe = pe.to(x.device)  # Positional Encoding을 동적으로 생성
+
+        return x + self.pe[:, :seq_len, :]
 class TransformerModel(nn.Module):
-    def __init__(self, input_dim, output_dim, num_heads=8, num_layers=4, hidden_dim=384, dropout=0.1, seq_len=1):
+    def __init__(self, input_dim, output_dim, num_heads=8, num_layers=6, hidden_dim=512, dropout=0.1):
         super(TransformerModel, self).__init__()
 
         self.embedding = nn.Linear(input_dim, hidden_dim)
-        self.pos_encoder = PositionalEncoding(hidden_dim)
-        self.seq_len = seq_len
+        self.pos_encoder = PositionalEncoding(hidden_dim)  # ✅ Positional Encoding 추가
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_dim,
@@ -33,11 +37,9 @@ class TransformerModel(nn.Module):
         )
 
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-
         self.fc_out = nn.Linear(hidden_dim, output_dim)
         self.dropout = nn.Dropout(dropout)
 
-        # 가중치 초기화
         self.init_weights()
 
     def init_weights(self):
@@ -48,14 +50,9 @@ class TransformerModel(nn.Module):
                     nn.init.zeros_(layer.bias)
 
     def forward(self, x):
+        #print(f"🔍 입력 데이터 크기: {x.shape}")  # 디버깅용
         x = self.embedding(x)
-        x = self.pos_encoder(x)  # 포지셔널 인코딩 추가
+        x = self.pos_encoder(x)  # ✅ Positional Encoding 적용
         x = self.transformer_encoder(x)
         x = self.fc_out(x)
         return x
-
-if __name__ == "__main__":
-    sample_input = torch.randn(10, 1, 10)  # (batch_size, seq_len, input_dim)
-    model = TransformerModel(input_dim=10, output_dim=2)
-    output = model(sample_input)
-    print("모델 테스트 출력:", output.shape)
