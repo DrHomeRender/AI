@@ -3,58 +3,35 @@ import matplotlib.pyplot as plt
 from statsmodels.tsa.seasonal import seasonal_decompose
 
 # 데이터 불러오기
-def load_data(file_path):
-    df = pd.read_csv(file_path)
-    df['Year'] = pd.to_datetime(df['Year'], format='%Y')
-    df.set_index('Year', inplace=True)
-    return df
+df = pd.read_csv("data_season.csv")
+df['Year'] = pd.to_datetime(df['Year'], format='%Y')
+df.set_index('Year', inplace=True)
 
-# 시계열 시각화 함수
-def plot_time_series(df, columns):
-    plt.figure(figsize=(14, 6 * len(columns)))
+# 모든 작물에 대해 시계열 분해
+def analyze_all_crops_seasonality(df, period=3):
+    crops = df['Crops'].unique()
 
-    for i, column in enumerate(columns, 1):
-        if column in df.columns:
-            plt.subplot(len(columns), 1, i)
-            plt.plot(df.index, df[column], label=column, color='skyblue')
-            plt.title(f'{column} Over Time')
-            plt.xlabel('Year')
-            plt.ylabel(column)
-            plt.legend()
-        else:
-            print(f"⚠️ '{column}' 열이 존재하지 않습니다.")
+    for crop in crops:
+        print(f"\n📊 **{crop} 작물 시계열 분석**")
+        crop_data = df[df['Crops'] == crop]
 
-    plt.tight_layout()
-    plt.savefig("time_series_plot.png")
-    print("📊 시계열 그래프가 'time_series_plot.png'로 저장되었습니다.")
-    plt.show()
+        # 연도별 평균 가격 시계열 생성
+        avg_price_per_year = crop_data.groupby(crop_data.index.year)['price'].mean()
 
-# 시계열 분해 함수
-def decompose_time_series(df, column, period=5):
-    if column not in df.columns:
-        print(f"⚠️ '{column}' 열이 존재하지 않습니다.")
-        return
+        # 데이터가 충분하지 않으면 스킵
+        if len(avg_price_per_year) < period:
+            print(f"⚠️ {crop} 작물은 데이터가 부족하여 분석을 생략합니다.")
+            continue
 
-    try:
-        result = seasonal_decompose(df[column], model='additive', period=period)
-        result.plot()
-        plt.suptitle(f'Seasonal Decomposition of {column}')
-        plt.savefig(f"decompose_{column}.png")
-        print(f"📊 '{column}' 시계열 분해 그래프가 'decompose_{column}.png'로 저장되었습니다.")
-        plt.show()
-    except Exception as e:
-        print(f"❌ 시계열 분해 중 오류 발생: {e}")
+        # 시계열 분해
+        try:
+            result = seasonal_decompose(avg_price_per_year, model='additive', period=period)
+            result.plot()
+            plt.suptitle(f'Seasonal Decomposition of {crop} Price')
+            plt.tight_layout()
+            plt.show()
+        except Exception as e:
+            print(f"❌ {crop} 분석 중 오류 발생: {e}")
 
-# 메인 실행
-if __name__ == "__main__":
-    file_path = "data_season.csv"
-    df = load_data(file_path)
-    print(df.head())
-
-    # 시계열 시각화 (분석할 열 선택)
-    target_columns = ['yeilds', 'price']
-    plot_time_series(df, target_columns)
-
-    # 시계열 분해 (주기 설정)
-    for column in target_columns:
-        decompose_time_series(df, column, period=3)
+# 모든 작물에 대해 시계열 분석 수행
+analyze_all_crops_seasonality(df, period=3)
